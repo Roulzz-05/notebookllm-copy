@@ -1,0 +1,34 @@
+spring:
+  application:
+    name: studyai
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/NotebookLM
+    username: postgres
+    password: ${DB_PASSWORD:rahulsql@05}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+app:
+  gemini:
+    api-key: ${GEMINI_API_KEY}
+    model: gemini-2.5-flash
+    fallback-model: gemini-2.0-flash-lite
+    url: https://generativelanguage.googleapis.com/v1beta/models
+
+logging:
+  level:
+    com.app.studyai: DEBUG
