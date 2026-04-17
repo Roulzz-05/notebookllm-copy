@@ -4,6 +4,7 @@ import com.app.studyai.dto.DocumentResponse;
 import com.app.studyai.model.Document;
 import com.app.studyai.repository.DocumentRepository;
 import com.app.studyai.repository.TopicRepository;
+import com.app.studyai.rag.LLMService;
 import com.app.studyai.rag.VectorService;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -27,15 +28,18 @@ public class DocumentService {
     private final DocumentRepository documentRepository;
     private final TopicRepository topicRepository;
     private final VectorService vectorService;
+    private final LLMService llmService;
     private final DocumentAsyncProcessor documentAsyncProcessor;
 
     public DocumentService(DocumentRepository documentRepository, 
                            TopicRepository topicRepository,
                            VectorService vectorService, 
+                           LLMService llmService,
                            DocumentAsyncProcessor documentAsyncProcessor) {
         this.documentRepository = documentRepository;
         this.topicRepository = topicRepository;
         this.vectorService = vectorService;
+        this.llmService = llmService;
         this.documentAsyncProcessor = documentAsyncProcessor;
     }
 
@@ -72,6 +76,10 @@ public class DocumentService {
             // Store Document with full content
             updateDocumentContent(documentId, rawText, chunks.size());
 
+            // Generate and store summary (using LLM or fallback)
+            String summary = llmService.generateSummary(rawText);
+            updateDocumentSummary(documentId, summary);
+
             // Store in Vector DB (Mocked)
             vectorService.storeChunks(documentId, chunks);
 
@@ -97,6 +105,14 @@ public class DocumentService {
         documentRepository.findById(id).ifPresent(doc -> {
             doc.setContent(content);
             doc.setTotalChunks(chunks);
+            documentRepository.save(doc);
+        });
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void updateDocumentSummary(Long id, String summary) {
+        documentRepository.findById(id).ifPresent(doc -> {
+            doc.setSummary(summary);
             documentRepository.save(doc);
         });
     }
