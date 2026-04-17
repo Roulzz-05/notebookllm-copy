@@ -17,6 +17,9 @@ public class Document {
     @Column(columnDefinition = "TEXT")
     private String content;
 
+    @Column(columnDefinition = "TEXT")
+    private String summary;
+
     private LocalDateTime uploadedAt;
 
     // ── No-arg constructor ──────────────────────────────────────
@@ -61,6 +64,7 @@ public class Document {
     public String getStatus() { return status; }
     public int getTotalChunks() { return totalChunks; }
     public String getContent() { return content; }
+    public String getSummary() { return summary; }
     public LocalDateTime getUploadedAt() { return uploadedAt; }
 
     // ── Setters ─────────────────────────────────────────────────
@@ -69,5 +73,6 @@ public class Document {
     public void setStatus(String status) { this.status = status; }
     public void setTotalChunks(int totalChunks) { this.totalChunks = totalChunks; }
     public void setContent(String content) { this.content = content; }
+    public void setSummary(String summary) { this.summary = summary; }
     public void setUploadedAt(LocalDateTime uploadedAt) { this.uploadedAt = uploadedAt; }
 }

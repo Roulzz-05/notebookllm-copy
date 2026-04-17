@@ -5,7 +5,7 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/NotebookLM
     username: postgres
-    password: ${DB_PASSWORD:rahulsql@05}
+    password: ${DB_PASSWORD:your_password_here}
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -24,9 +24,9 @@ spring:
 
 app:
   gemini:
-    api-key: ${GEMINI_API_KEY}
-    model: gemini-2.5-flash
-    fallback-model: gemini-2.0-flash-lite
+    api-key: ${GEMINI_API_KEY:your_api_key_here}
+    model: gemini-flash-latest
+    fallback-model: gemini-pro-latest
     url: https://generativelanguage.googleapis.com/v1beta/models
 
 logging:

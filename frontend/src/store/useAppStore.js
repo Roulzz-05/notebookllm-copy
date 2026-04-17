@@ -37,6 +37,8 @@ const useAppStore = create((set, get) => ({
   // ─── Chat ──────────────────────────────────────────────────
   chatMessages: [],
   isChatLoading: false,
+  learningMode: 'teacher',
+  setLearningMode: (mode) => set({ learningMode: mode }),
 
   addUserMessage: (text) =>
     set((state) => ({
@@ -60,19 +62,21 @@ const useAppStore = create((set, get) => ({
   topics: [],
   isTopicsLoading: false,
   activeView: 'chat', // 'chat' | 'flow'
+  pdfSummary: '',
+  setPdfSummary: (v) => set({ pdfSummary: v }),
 
   setTopics: (topics) => set({ topics }),
   setTopicsLoading: (v) => set({ isTopicsLoading: v }),
   setActiveView: (v) => set({ activeView: v }),
 
-  markTopicCompleted: (id) => {
-    const markInTree = (nodes) =>
+  toggleTopicCompleted: (id, completed) => {
+    const toggleInTree = (nodes) =>
       nodes.map((n) => ({
         ...n,
-        completed: n.id === id ? true : n.completed,
-        children: n.children ? markInTree(n.children) : [],
+        completed: n.id === id ? completed : n.completed,
+        children: n.children ? toggleInTree(n.children) : [],
       }))
-    set((state) => ({ topics: markInTree(state.topics) }))
+    set((state) => ({ topics: toggleInTree(state.topics) }))
   },
 
 
@@ -88,6 +92,30 @@ const useAppStore = create((set, get) => ({
     })),
   removeToast: (id) =>
     set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
+
+  // ─── Quizzes ──────────────────────────────────────────────
+  quizzes: [],
+  isQuizLoading: false,
+  activeQuiz: null,
+
+  setQuizzes: (quizzes) => set({ quizzes }),
+  setQuizLoading: (v) => set({ isQuizLoading: v }),
+  setActiveQuiz: (quiz) => set({ activeQuiz: quiz }),
+
+  // ─── Stories ──────────────────────────────────────────────
+  stories: [],
+  isStoryLoading: false,
+  activeStory: null,
+
+  setStories: (stories) => set({ stories }),
+  setStoryLoading: (v) => set({ isStoryLoading: v }),
+  setActiveStory: (story) => set({ activeStory: story }),
+
+  // ─── YouTube Recommendations ───────────────────────────────
+  youtubeRecs: [],
+  isYouTubeLoading: false,
+  setYouTubeRecs: (recs) => set({ youtubeRecs: recs }),
+  setYouTubeLoading: (v) => set({ isYouTubeLoading: v }),
 }))
 
 export default useAppStore

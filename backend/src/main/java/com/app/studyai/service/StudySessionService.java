@@ -48,30 +48,36 @@ public class StudySessionService {
         topicRepository.deleteByDocumentId(documentId);
         topicRepository.flush();
 
-        log.info("Calling Gemini LLM to generate topics for document id={}", documentId);
-        String jsonResponse;
+        log.info("Calling Gemini LLM to generate consolidated roadmap for document id={}", documentId);
+        String roadmapJson;
         try {
-            jsonResponse = llmService.generateStudyTopics(document.getContent());
+            roadmapJson = llmService.generateStudyRoadmap(document.getContent());
         } catch (Exception e) {
-            log.error("LLM call failed for document id={}", documentId, e);
+            log.error("LLM roadmap call failed for document id={}", documentId, e);
             throw new RuntimeException("AI service error: " + e.getMessage(), e);
         }
 
-        log.debug("Gemini raw JSON response: {}", jsonResponse);
+        log.debug("Gemini raw roadmap JSON: {}", roadmapJson);
 
         List<Topic> rootTopics;
         try {
-            List<Map<String, Object>> parsedTopics =
-                    objectMapper.readValue(jsonResponse, new TypeReference<>() {});
-            rootTopics = parseAndSaveTopics(document, null, parsedTopics);
-        } catch (Exception e) {
-            log.error("Failed to parse topics JSON for doc {}. Raw response was: [{}]", documentId, jsonResponse, e);
-            String preview = jsonResponse.length() > 100 ? jsonResponse.substring(0, 100) + "..." : jsonResponse;
-            throw new RuntimeException("AI returned invalid data format. Preview: " + preview);
-        }
+            Map<String, Object> roadmapMap = objectMapper.readValue(roadmapJson, new TypeReference<>() {});
+            
+            // Extract and save summary
+            String summary = (String) roadmapMap.get("summary");
+            if (summary != null) {
+                document.setSummary(summary);
+                documentRepository.save(document);
+            }
 
-        if (rootTopics.isEmpty()) {
-            throw new RuntimeException("AI returned an empty topic list");
+            // Extract and save topics
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> topicsData = (List<Map<String, Object>>) roadmapMap.get("topics");
+            rootTopics = parseAndSaveTopics(document, null, topicsData);
+
+        } catch (Exception e) {
+            log.error("Failed to parse roadmap JSON for doc {}. Raw response: [{}]", documentId, roadmapJson, e);
+            throw new RuntimeException("AI returned invalid roadmap format.");
         }
 
         // Re-fetch with EntityGraph so children are eagerly loaded for the controller
@@ -102,11 +108,18 @@ public class StudySessionService {
         return savedList;
     }
 
+    @Transactional(readOnly = true)
+    public String getDocumentSummary(Long documentId) {
+        return documentRepository.findById(documentId)
+                .map(Document::getSummary)
+                .orElse(null);
+    }
+
     @Transactional
-    public Topic markCompleted(Long topicId) {
+    public Topic toggleTopicCompletion(Long topicId) {
         Topic t = topicRepository.findById(topicId)
                 .orElseThrow(() -> new RuntimeException("Topic not found: " + topicId));
-        t.setCompleted(true);
+        t.setCompleted(!t.isCompleted());
         return topicRepository.save(t);
     }
 }

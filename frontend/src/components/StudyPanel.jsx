@@ -1,20 +1,24 @@
 import React, { useState, useMemo } from 'react'
-import { ChevronRight, CheckCircle, Circle, Sparkles, RotateCcw } from 'lucide-react'
+import { ChevronRight, CheckCircle, Circle, Sparkles, RotateCcw, BrainCircuit, BookOpen, Youtube } from 'lucide-react'
 import useAppStore from '../store/useAppStore'
-import { completeTopic } from '../api/client'
+import { completeTopic, generateQuiz, generateStory, getYouTubeRecommendations } from '../api/client'
+import QuizView from './QuizView'
+import StoryView from './StoryView'
+import YouTubePanel from './YouTubePanel'
 
 function TopicNode({ topic, depth = 0 }) {
   const [expanded, setExpanded] = useState(depth === 0)
-  const { markTopicCompleted, addToast } = useAppStore()
+  const { toggleTopicCompleted, addToast } = useAppStore()
 
   const hasChildren = topic.children && topic.children.length > 0
 
-  const handleComplete = async (e) => {
+  const handleToggle = async (e) => {
     e.stopPropagation()
-    if (topic.completed) return
     try {
-      await completeTopic(topic.id)
-      markTopicCompleted(topic.id)
+      const { completeTopic } = await import('../api/client')
+      const { data } = await completeTopic(topic.id)
+      toggleTopicCompleted(topic.id, data.completed)
+      addToast(data.completed ? 'Topic completed!' : 'Topic reset.', 'info')
     } catch {
       addToast('Failed to update topic', 'error')
     }
@@ -30,19 +34,17 @@ function TopicNode({ topic, depth = 0 }) {
         onKeyDown={(e) => e.key === 'Enter' && hasChildren && setExpanded(!expanded)}
         aria-expanded={hasChildren ? expanded : undefined}
       >
-        {/* Expand arrow */}
         <ChevronRight
           size={13}
           className={`topic-expand-icon ${expanded ? 'expanded' : ''}`}
           style={{ opacity: hasChildren ? 1 : 0 }}
         />
 
-        {/* Check / complete button */}
         <button
           className={`topic-check ${topic.completed ? 'checked' : ''}`}
-          onClick={handleComplete}
-          aria-label={`Mark "${topic.title}" as completed`}
-          style={{ cursor: topic.completed ? 'default' : 'pointer' }}
+          onClick={handleToggle}
+          aria-label={`Toggle "${topic.title}" completion`}
+          style={{ cursor: 'pointer' }}
         >
           {topic.completed && (
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -51,18 +53,15 @@ function TopicNode({ topic, depth = 0 }) {
           )}
         </button>
 
-        {/* Title */}
         <span className={`topic-title ${topic.completed ? 'completed' : ''}`}>
           {topic.title}
         </span>
 
-        {/* Importance badge */}
         {topic.importance === 'HIGH' && (
           <span className="importance-badge HIGH">KEY</span>
         )}
       </div>
 
-      {/* Children */}
       {hasChildren && expanded && (
         <div className="topic-children">
           {topic.children.map((child) => (
@@ -82,10 +81,27 @@ export default function StudyPanel() {
     isTopicsLoading,
     setTopics,
     setTopicsLoading,
+    pdfSummary,
+    setPdfSummary,
+    toggleTopicCompleted,
     addToast,
     activeView,
     setActiveView,
+    activeQuiz,
+    setActiveQuiz,
+    isQuizLoading,
+    setQuizLoading,
+    isStoryLoading,
+    setStoryLoading,
+    activeStory,
+    setActiveStory,
+    youtubeRecs,
+    isYouTubeLoading,
+    setYouTubeRecs,
+    setYouTubeLoading,
   } = useAppStore()
+
+  const [showYouTube, setShowYouTube] = useState(false)
 
   const selectedDoc = documents.find((d) => d.id === selectedDocId)
   
@@ -103,11 +119,80 @@ export default function StudyPanel() {
       const { getStudySession } = await import('../api/client')
       const { data } = await getStudySession(selectedDocId)
       setTopics(data.topics || [])
-      addToast('Study topics generated!', 'success')
+      setPdfSummary(data.summary || '')
+      addToast('Study roadmap and summary generated!', 'success')
     } catch (err) {
-      addToast('Failed to generate topics. Is the document ready?', 'error')
+      if (err.response?.status === 429) {
+        addToast('Gemini API rate limit hit. Please wait a moment and try again.', 'error')
+      } else {
+        addToast('Failed to generate topics. Is the document ready?', 'error')
+      }
     } finally {
       setTopicsLoading(false)
+    }
+  }
+
+  const handleComplete = async (topicId, currentStatus) => {
+    try {
+      const { completeTopic } = await import('../api/client')
+      const { data } = await completeTopic(topicId)
+      toggleTopicCompleted(topicId, data.completed)
+      addToast(data.completed ? 'Topic marked as completed!' : 'Topic reset.', 'info')
+    } catch (err) {
+      addToast('Failed to update status', 'error')
+    }
+  }
+
+  const handleGenerateQuiz = async () => {
+    if (!selectedDocId || isQuizLoading) return
+    setQuizLoading(true)
+    try {
+      const { data } = await generateQuiz(selectedDocId)
+      setActiveQuiz(data)
+      addToast('Quiz generated successfully!', 'success')
+    } catch (err) {
+      const msg = err.response?.data?.message || '';
+      if (msg.includes('429') || msg.toLowerCase().includes('quota')) {
+        addToast('Gemini API quota exceeded. Please wait a minute and try again.', 'error')
+      } else {
+        addToast('Failed to generate quiz. Is the document too large?', 'error')
+      }
+    } finally {
+      setQuizLoading(false)
+    }
+  }
+
+  const handleGenerateStory = async () => {
+    if (!selectedDocId || isStoryLoading) return
+    setStoryLoading(true)
+    try {
+      const { data } = await generateStory(selectedDocId)
+      setActiveStory(data)
+      addToast('Story generated successfully!', 'success')
+    } catch (err) {
+      const msg = err.response?.data?.message || '';
+      if (msg.includes('429') || msg.toLowerCase().includes('quota')) {
+        addToast('Gemini API quota exceeded. Please wait a minute and try again.', 'error')
+      } else {
+        addToast('Failed to generate story.', 'error')
+      }
+    } finally {
+      setStoryLoading(false)
+    }
+  }
+
+  const handleGetYouTubeRecs = async () => {
+    if (!selectedDocId || isYouTubeLoading) return
+    setYouTubeLoading(true)
+    try {
+      const { data } = await getYouTubeRecommendations(selectedDocId)
+      setYouTubeRecs(data || [])
+      setShowYouTube(true)
+      addToast('YouTube recommendations ready!', 'success')
+    } catch (err) {
+      addToast('Failed to get recommendations. Try again.', 'error')
+    } finally {
+      setYouTubeLoading(false)
     }
   }
 
@@ -176,6 +261,63 @@ export default function StudyPanel() {
           )}
         </button>
 
+        <button
+          className="study-generate-btn secondary"
+          style={{ marginTop: '0.5rem', background: 'var(--bg-elevated)', border: '1px solid var(--border-normal)' }}
+          onClick={handleGenerateQuiz}
+          disabled={!selectedDocId || selectedDoc?.status !== 'READY' || isQuizLoading}
+        >
+          {isQuizLoading ? (
+            <>
+              <div className="spinner" />
+              Creating test…
+            </>
+          ) : (
+            <>
+              <BrainCircuit size={15} />
+              Generate AI Test
+            </>
+          )}
+        </button>
+
+        <button
+          className="study-generate-btn secondary"
+          style={{ marginTop: '0.5rem', background: 'var(--bg-elevated)', border: '1px solid var(--border-normal)' }}
+          onClick={handleGenerateStory}
+          disabled={!selectedDocId || selectedDoc?.status !== 'READY' || isStoryLoading}
+        >
+          {isStoryLoading ? (
+            <>
+              <div className="spinner" />
+              Writing Story…
+            </>
+          ) : (
+            <>
+              <BookOpen size={15} />
+              Generate AI Story
+            </>
+          )}
+        </button>
+
+        <button
+          className="study-generate-btn secondary"
+          style={{ marginTop: '0.5rem', background: 'var(--bg-elevated)', border: '1px solid rgba(255,68,68,0.3)' }}
+          onClick={handleGetYouTubeRecs}
+          disabled={!selectedDocId || selectedDoc?.status !== 'READY' || isYouTubeLoading}
+        >
+          {isYouTubeLoading ? (
+            <>
+              <div className="spinner" />
+              Finding Videos…
+            </>
+          ) : (
+            <>
+              <Youtube size={15} color="#ff4444" />
+              YouTube Recommendations
+            </>
+          )}
+        </button>
+
         {!selectedDocId && (
           <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: '0.5rem' }}>
             Select a document first
@@ -187,6 +329,19 @@ export default function StudyPanel() {
           </p>
         )}
       </div>
+
+      {/* Summary Card */}
+      {pdfSummary && !isTopicsLoading && (
+        <div className="pdf-summary-container" style={{ margin: '1rem', padding: '1rem', background: 'rgba(108,99,255,0.05)', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
+          <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--accent-primary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <BrainCircuit size={16} />
+            Document Summary
+          </h3>
+          <p style={{ fontSize: '0.8125rem', lineHeight: '1.5', color: 'var(--text-secondary)' }}>
+            {pdfSummary}
+          </p>
+        </div>
+      )}
 
       {/* Topic Tree */}
       <div className="topic-tree">
@@ -222,6 +377,22 @@ export default function StudyPanel() {
             <div className="progress-fill" style={{ width: `${progressPct}%` }} />
           </div>
         </div>
+      )}
+
+      {activeQuiz && (
+        <div className="quiz-overlay">
+          <QuizView />
+        </div>
+      )}
+
+      {activeStory && (
+        <div className="quiz-overlay story-overlay">
+          <StoryView />
+        </div>
+      )}
+
+      {showYouTube && (
+        <YouTubePanel onClose={() => setShowYouTube(false)} />
       )}
     </div>
   )

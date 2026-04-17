@@ -24,8 +24,9 @@ public class ChatController {
         }
         Long documentId = Long.valueOf(rawId.toString());
         String query = (String) request.get("query");
-        
-        String response = chatService.generateChatResponse(documentId, query);
+        String mode = request.get("mode") != null ? request.get("mode").toString() : "teacher";
+
+        String response = chatService.generateChatResponse(documentId, query, mode);
         return ResponseEntity.ok(Map.of("response", response));
     }
 }
