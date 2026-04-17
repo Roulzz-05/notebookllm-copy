@@ -141,9 +141,16 @@ public class GeminiLLMService implements LLMService {
             String[] lines = documentContent.split("\\r?\\n");
             for (String line : lines) {
                 String trimmed = line.trim();
-                // Filter for lines that look like headings
+                // Find potential keywords in HEADERS (Uppercase)
                 if (trimmed.length() > 5 && trimmed.length() < 60 && Character.isUpperCase(trimmed.charAt(0)) && !trimmed.contains("{")) {
                     keywords.add(trimmed.replaceAll("\"", "'"));
+                }
+                // Also pick up noun-heavy technical terms if uppercase headers are scarce
+                if (keywords.size() < 4 && trimmed.length() > 20 && trimmed.contains(" ")) {
+                    String[] words = trimmed.split("\\s+");
+                    if (words.length > 2 && words.length < 10) {
+                        keywords.add(trimmed.replaceAll("\"", "'"));
+                    }
                 }
                 if (keywords.size() > 10) break;
             }
@@ -250,10 +257,11 @@ public class GeminiLLMService implements LLMService {
                 "\n---------------------\n" +
                 "User Question: " + query + "\nAnswer:";
         
+        String combinedContext = String.join(" ", contextChunks);
         if (mockMode) {
-            return getMockForFeature("chat", query);
+            return getMockForFeature("chat", combinedContext);
         }
-        return callWithFallback(prompt, query, "chat");
+        return callWithFallback(prompt, combinedContext, "chat");
     }
 
     @Override
