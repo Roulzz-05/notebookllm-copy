@@ -26,7 +26,7 @@ export default function Header() {
           border: '1px solid var(--border-accent)',
         }}>
           <Zap size={11} color="var(--accent-primary)" />
-          Powered by Gemini
+          Powered by THE ROULZ
         </span>
       </div>
     </header>

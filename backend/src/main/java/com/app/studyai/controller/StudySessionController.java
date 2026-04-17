@@ -24,12 +24,19 @@ public class StudySessionController {
     public ResponseEntity<Map<String, Object>> getStudySession(@PathVariable Long documentId) {
         List<Topic> topics = studySessionService.generateInitialTopics(documentId);
         List<TopicResponse> response = topics.stream().map(this::mapToResponse).collect(Collectors.toList());
-        return ResponseEntity.ok(Map.of("topics", response));
+
+        // Also fetch document to get its summary
+        String summary = studySessionService.getDocumentSummary(documentId);
+
+        return ResponseEntity.ok(Map.of(
+            "topics", response,
+            "summary", summary != null ? summary : ""
+        ));
     }
 
     @PostMapping("/topic/complete/{id}")
     public ResponseEntity<TopicResponse> completeTopic(@PathVariable Long id) {
-        Topic t = studySessionService.markCompleted(id);
+        Topic t = studySessionService.toggleTopicCompletion(id);
         return ResponseEntity.ok(mapToResponse(t));
     }
 

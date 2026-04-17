@@ -16,8 +16,8 @@ public class ChatService {
         this.llmService = llmService;
     }
 
-    public String generateChatResponse(Long documentId, String query) {
+    public String generateChatResponse(Long documentId, String query, String mode) {
         List<String> relatedChunks = vectorService.searchSimilar(documentId, query, 5);
-        return llmService.generateChatResponse(query, relatedChunks);
+        return llmService.generateChatResponse(query, relatedChunks, mode);
     }
 }

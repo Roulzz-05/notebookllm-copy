@@ -5,10 +5,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.HttpServerErrorException;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.*;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
 import java.util.*;
 
 @Service
@@ -22,153 +22,190 @@ public class GeminiLLMService implements LLMService {
     @Value("${app.gemini.model}")
     private String model;
 
-    @Value("${app.gemini.fallback-model:gemini-1.5-flash-8b}")
+    @Value("${app.gemini.fallback-model:gemini-1.5-flash}")
     private String fallbackModel;
 
-    @Value("${app.gemini.url}")
+    @Value("${app.gemini.base-url}")
     private String baseUrl;
+
+    @Value("${app.gemini.mock-mode:false}")
+    private boolean mockMode;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
+    // ========================= CORE GEMINI CALL =========================
+
+    private String callGemini(String modelName, String promptText) {
+        String[] versions = {"v1beta", "v1"};
+        Exception lastException = null;
+
+        for (String version : versions) {
+            String urlString = "https://generativelanguage.googleapis.com/" + version + "/models/" + modelName + ":generateContent?key=" + apiKey;
+            URI url = UriComponentsBuilder.fromHttpUrl(urlString).build(true).toUri();
+            
+            log.info("Attempting Gemini API ({}/{}): models/{}:generateContent", version, modelName, modelName);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            Map<String, Object> textPart = Map.of("text", promptText);
+            Map<String, Object> content = Map.of("parts", List.of(textPart));
+            Map<String, Object> body = Map.of("contents", List.of(content));
+
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+            try {
+                ResponseEntity<Map> response = restTemplate.postForEntity(url, request, Map.class);
+                if (response.getBody() != null) {
+                    List<Map<String, Object>> candidates = (List<Map<String, Object>>) response.getBody().get("candidates");
+                    if (candidates != null && !candidates.isEmpty()) {
+                        Map<String, Object> contentMap = (Map<String, Object>) candidates.get(0).get("content");
+                        List<Map<String, Object>> parts = (List<Map<String, Object>>) contentMap.get("parts");
+                        return (String) parts.get(0).get("text");
+                    }
+                }
+                throw new RuntimeException("Empty response from Gemini");
+            } catch (HttpClientErrorException.NotFound e) {
+                log.warn("Model '{}' not found on endpoint '{}'. Trying next version...", modelName, version);
+                lastException = e;
+            } catch (HttpClientErrorException.TooManyRequests e) {
+                log.error("Rate limit exceeded for Gemini API");
+                throw new RuntimeException("Rate limit exceeded", e);
+            } catch (Exception e) {
+                log.error("Error calling Gemini API on {}: {}", version, e.getMessage());
+                lastException = e;
+            }
+        }
+        throw new RuntimeException("Gemini call failed after trying all versions: " + (lastException != null ? lastException.getMessage() : "Unknown error"));
+    }
+
+    private String callWithFallback(String prompt) {
+        try {
+            return callGemini(model, prompt);
+        } catch (Exception e) {
+            log.warn("Primary failed, switching to fallback model");
+            return callGemini(fallbackModel, prompt);
+        }
+    }
+
+    private void sleep(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ignored) {
+        }
+    }
+
+    // ========================= FEATURES =========================
+
     @Override
-    public String generateChatResponse(String query, List<String> contextChunks) {
-        String prompt = "You are a helpful study AI assistant answering questions based on provided document context.\n\n" +
-                "Context information is below.\n" +
+    public String generateChatResponse(String query, List<String> contextChunks, String mode) {
+        String persona;
+        switch (mode != null ? mode.toLowerCase() : "teacher") {
+            case "beginner":
+                persona = "You are a friendly and patient tutor explaining things to a complete beginner. " +
+                        "Use very simple words, relatable everyday analogies, and avoid jargon. ";
+                break;
+            case "meme":
+                persona = "You are a hilariously funny AI who explains things using internet meme culture, pop-culture references, emojis, and humor. ";
+                break;
+            case "interview":
+                persona = "You are a strict senior engineer conducting a technical interview. " +
+                        "Answer the question concisely and precisely like a model answer in an interview. ";
+                break;
+            default: // "teacher"
+                persona = "You are an expert teacher delivering a well-structured lesson. " +
+                        "Start with a clear definition, explain the concept thoroughly with examples. ";
+        }
+
+        String prompt = persona + "\n\n" +
+                "Use the document context below to ground your answer.\n" +
                 "---------------------\n" +
                 String.join("\n\n", contextChunks) +
                 "\n---------------------\n" +
-                "Given the context information and no prior knowledge, answer the user's query.\n" +
-                "Query: " + query + "\nAnswer:";
-        return callGeminiWithFallback(prompt);
+                "User Question: " + query + "\nAnswer:";
+        
+        if (mockMode) {
+            return "Mock response from AI tutor.";
+        }
+        return callWithFallback(prompt);
     }
 
     @Override
     public String generateStudyTopics(String documentContent) {
-        String truncated = documentContent.length() > 50000
-                ? documentContent.substring(0, 50000)
-                : documentContent;
+        String truncated = documentContent.length() > 50000 ? documentContent.substring(0, 50000) : documentContent;
+        String prompt = "Generate a JSON array of study topics from the following document:\n" + truncated + 
+                        "\nFormat: [{\"title\": \"Topic\", \"importance\": \"HIGH|DEFAULT\", \"children\": []}]";
 
-        String prompt = "You are an AI generating structured learning topics from a document.\n" +
-                "Given the document content below, generate a JSON array of topics with dependencies.\n" +
-                "Format: [ { \"title\": \"Topic Name\", \"importance\": \"HIGH|DEFAULT\", \"children\": [ { \"title\": \"Nested Topic\", \"importance\": \"DEFAULT\", \"children\": [] } ] } ]\n" +
-                "Return ONLY valid JSON array and absolutely no other text, markdown, or explanation.\n\n" +
-                "Document Content:\n" + truncated + "\n\nJSON array:";
+        if (mockMode)
+            return "[{\"title\":\"Sample Topic\", \"importance\":\"HIGH\", \"children\":[]}]";
 
-        String json = callGeminiWithFallback(prompt);
-        // Strip any markdown code fences and extraneous text the model might add
-        json = scrubJson(json);
-        
-        log.info("Cleaned topics JSON (first 300 chars): {}",
-                json.substring(0, Math.min(300, json.length())));
-        return json;
+        String json = callWithFallback(prompt);
+        return scrubJson(json);
+    }
+
+    @Override
+    public String generateQuiz(String documentContent) {
+        String truncated = documentContent.length() > 50000 ? documentContent.substring(0, 50000) : documentContent;
+        String prompt = "Generate 5 MCQs in JSON format:\n" + truncated +
+                        "\nFormat: [{\"text\": \"Q\", \"options\": [\"A\",\"B\",\"C\",\"D\"], \"correctAnswerIndex\": 0, \"explanation\": \"E\"}]";
+
+        if (mockMode)
+            return "[{\"text\":\"Mock?\", \"options\":[\"A\",\"B\",\"C\",\"D\"], \"correctAnswerIndex\":0, \"explanation\":\"E\"}]";
+
+        String json = callWithFallback(prompt);
+        return scrubJson(json);
+    }
+
+    @Override
+    public String generateStory(String documentContent) {
+        String truncated = documentContent.length() > 50000 ? documentContent.substring(0, 50000) : documentContent;
+        String prompt = "Convert into an engaging story:\n" + truncated;
+        if (mockMode) return "Mock story content";
+        return callWithFallback(prompt);
+    }
+
+    @Override
+    public String generateSummary(String documentContent) {
+        String truncated = documentContent.length() > 50000 ? documentContent.substring(0, 50000) : documentContent;
+        String prompt = "Summarize the document concisely:\n" + truncated;
+        if (mockMode) return "Mock summary content";
+        return callWithFallback(prompt);
+    }
+
+    @Override
+    public String generateYouTubeSearchQueries(String documentContent) {
+        String truncated = documentContent.length() > 8000 ? documentContent.substring(0, 8000) : documentContent;
+        String prompt = "Generate 6 YouTube search queries in JSON:\n" + truncated +
+                        "\nFormat: [{\"title\":\"T\", \"query\":\"Q\", \"description\":\"D\", \"category\":\"C\"}]";
+        if (mockMode) return "[{\"title\":\"T\", \"query\":\"Q\", \"description\":\"D\", \"category\":\"C\"}]";
+        String json = callWithFallback(prompt);
+        return scrubJson(json);
+    }
+
+    @Override
+    public String generateStudyRoadmap(String documentContent) {
+        String truncated = documentContent.length() > 50000 ? documentContent.substring(0, 50000) : documentContent;
+        String prompt = "Generate a study roadmap as a JSON array of topics:\n" + truncated +
+                        "\nFormat: [{\"title\":\"T\", \"importance\":\"HIGH|DEFAULT\", \"children\":[]}]";
+        if (mockMode) return "[{\"title\":\"Mock Roadmap\", \"importance\":\"HIGH\", \"children\":[]}]";
+        String json = callWithFallback(prompt);
+        return scrubJson(json);
     }
 
     private String scrubJson(String raw) {
-        if (raw == null) return "[]";
+        if (raw == null || raw.trim().isEmpty()) return "[]";
         String scrubbed = raw.trim();
-        // Remove markdown code fences: ```json ... ``` or ``` ... ```
         scrubbed = scrubbed.replaceAll("(?s)^.*?```(?:json)?\\s*", "");
         scrubbed = scrubbed.replaceAll("(?s)\\s*```.*$", "");
         scrubbed = scrubbed.trim();
-        
-        // If it starts with [ and ends with ], it's likely our array
-        int start = scrubbed.indexOf('[');
-        int end = scrubbed.lastIndexOf(']');
-        if (start != -1 && end != -1 && end > start) {
-            scrubbed = scrubbed.substring(start, end + 1);
-        }
+        int startBracket = scrubbed.indexOf('[');
+        int endBracket = scrubbed.lastIndexOf(']');
+        int startBrace = scrubbed.indexOf('{');
+        int endBrace = scrubbed.lastIndexOf('}');
+        int start = -1; int end = -1;
+        if (startBracket != -1) { start = startBracket; end = endBracket; }
+        else if (startBrace != -1) { start = startBrace; end = endBrace; }
+        if (start != -1 && end != -1 && end > start) return scrubbed.substring(start, end + 1);
         return scrubbed;
-    }
-
-    /**
-     * Try primary model first, then fallback model if we get a quota error.
-     */
-    private String callGeminiWithFallback(String promptText) {
-        try {
-            return callGeminiModel(model, promptText);
-        } catch (RuntimeException primaryEx) {
-            if (primaryEx.getMessage() != null && primaryEx.getMessage().contains("429")) {
-                log.warn("Primary model '{}' hit quota limit, trying fallback '{}'", model, fallbackModel);
-                try {
-                    return callGeminiModel(fallbackModel, promptText);
-                } catch (RuntimeException fallbackEx) {
-                    log.error("Fallback model '{}' also failed", fallbackModel, fallbackEx);
-                    throw new RuntimeException(
-                        "Both Gemini models are quota-limited. Please wait a minute and retry, or update your API key.",
-                        fallbackEx);
-                }
-            }
-            throw primaryEx;
-        }
-    }
-
-    private String callGeminiModel(String modelName, String promptText) {
-        String url = baseUrl + (baseUrl.endsWith("/") ? "" : "/") + modelName + ":generateContent?key=" + apiKey;
-        log.info("Calling Gemini model '{}' ...", modelName);
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-
-        Map<String, Object> textPart = new HashMap<>();
-        textPart.put("text", promptText);
-
-        Map<String, Object> contentMap = new HashMap<>();
-        contentMap.put("parts", Collections.singletonList(textPart));
-
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("contents", Collections.singletonList(contentMap));
-
-        HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
-
-        // Simple retry: up to 3 attempts for transient server errors
-        int maxRetries = 2;
-        for (int attempt = 0; attempt <= maxRetries; attempt++) {
-            try {
-                ResponseEntity<Map> response = restTemplate.postForEntity(url, request, Map.class);
-
-                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                    @SuppressWarnings("unchecked")
-                    List<Map<String, Object>> candidates =
-                            (List<Map<String, Object>>) response.getBody().get("candidates");
-                    if (candidates != null && !candidates.isEmpty()) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> content =
-                                (Map<String, Object>) candidates.get(0).get("content");
-                        @SuppressWarnings("unchecked")
-                        List<Map<String, Object>> parts =
-                                (List<Map<String, Object>>) content.get("parts");
-                        if (parts != null && !parts.isEmpty()) {
-                            return (String) parts.get(0).get("text");
-                        }
-                    }
-                }
-                log.warn("Gemini returned unexpected response body: {}", response.getBody());
-                return "No response generated.";
-
-            } catch (HttpClientErrorException.TooManyRequests e) {
-                // 429 – quota; no point retrying with same model
-                log.error("Gemini model '{}' quota exceeded: {}", modelName, e.getResponseBodyAsString());
-                throw new RuntimeException("Gemini API error 429 TOO_MANY_REQUESTS: " + e.getResponseBodyAsString(), e);
-
-            } catch (HttpClientErrorException e) {
-                log.error("Gemini API client error {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
-                throw new RuntimeException("Gemini API error " + e.getStatusCode() + ": " + e.getResponseBodyAsString(), e);
-
-            } catch (HttpServerErrorException e) {
-                if (attempt < maxRetries) {
-                    long delay = (long) Math.pow(2, attempt) * 1000;
-                    log.warn("Gemini server error {} on attempt {}; retrying in {}ms", e.getStatusCode(), attempt + 1, delay);
-                    try { Thread.sleep(delay); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                } else {
-                    log.error("Gemini API server error {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
-                    throw new RuntimeException("Gemini server error " + e.getStatusCode(), e);
-                }
-
-            } catch (Exception e) {
-                log.error("Error calling Gemini API", e);
-                throw new RuntimeException("Failed to call Gemini API: " + e.getMessage(), e);
-            }
-        }
-        throw new RuntimeException("Gemini call failed after " + maxRetries + " retries");
     }
 }
