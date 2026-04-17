@@ -50,14 +50,15 @@ public class QuizService {
             List<Question> questions = new ArrayList<>();
             
             for (Map<String, Object> qData : questionsData) {
-                // Basic validation
-                if (!qData.containsKey("text") || !qData.containsKey("options") || !qData.containsKey("correctAnswerIndex")) {
-                    continue; // Skip malformed questions
+                // More flexible validation
+                if (!qData.containsKey("text") || !qData.containsKey("options")) {
+                    log.warn("Skipping malformed quiz question: {}", qData);
+                    continue; 
                 }
 
                 Question q = new Question();
                 q.setQuiz(quiz);
-                q.setText((String) qData.get("text"));
+                q.setText(qData.get("text").toString());
                 q.setOptions((List<String>) qData.get("options"));
                 
                 // Safer Integer parsing in case AI returns index as string
@@ -65,7 +66,12 @@ public class QuizService {
                 if (rawIndex instanceof Number) {
                     q.setCorrectAnswerIndex(((Number) rawIndex).intValue());
                 } else if (rawIndex != null) {
-                    q.setCorrectAnswerIndex(Integer.parseInt(rawIndex.toString()));
+                    try {
+                        q.setCorrectAnswerIndex(Integer.parseInt(rawIndex.toString()));
+                    } catch (NumberFormatException nfe) {
+                        log.warn("Invalid index format: {}", rawIndex);
+                        q.setCorrectAnswerIndex(0);
+                    }
                 } else {
                     q.setCorrectAnswerIndex(0);
                 }

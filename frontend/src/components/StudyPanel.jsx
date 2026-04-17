@@ -119,13 +119,17 @@ export default function StudyPanel() {
       const { getStudySession } = await import('../api/client')
       const { data } = await getStudySession(selectedDocId)
       setTopics(data.topics || [])
-      setPdfSummary(data.summary || '')
-      addToast('Study roadmap and summary generated!', 'success')
+      addToast('Study roadmap generated!', 'success')
     } catch (err) {
-      if (err.response?.status === 429) {
-        addToast('Gemini API rate limit hit. Please wait a moment and try again.', 'error')
+      const msg = err.response?.data?.error || err.response?.data?.message || err.message || '';
+      if (err.response?.status === 429 || msg.toLowerCase().includes('quota')) {
+        addToast('Gemini API rate limit hit. Please wait a moment.', 'error')
+      } else if (msg.toLowerCase().includes('roadmap format')) {
+        addToast('The AI response was not in the expected format. Please try again.', 'error')
+      } else if (msg.toLowerCase().includes('api key')) {
+        addToast('Invalid Gemini API Key. Please check your backend configuration.', 'error')
       } else {
-        addToast('Failed to generate topics. Is the document ready?', 'error')
+        addToast(`Failed to generate topics: ${msg || 'Is the document ready?'}`, 'error')
       }
     } finally {
       setTopicsLoading(false)
@@ -151,11 +155,13 @@ export default function StudyPanel() {
       setActiveQuiz(data)
       addToast('Quiz generated successfully!', 'success')
     } catch (err) {
-      const msg = err.response?.data?.message || '';
+      const msg = err.response?.data?.error || err.response?.data?.message || err.message || '';
       if (msg.includes('429') || msg.toLowerCase().includes('quota')) {
-        addToast('Gemini API quota exceeded. Please wait a minute and try again.', 'error')
+        addToast('Gemini API quota exceeded. Please wait a minute.', 'error')
+      } else if (msg.toLowerCase().includes('api key')) {
+        addToast('Invalid Gemini API Key. Please check your backend configuration.', 'error')
       } else {
-        addToast('Failed to generate quiz. Is the document too large?', 'error')
+        addToast(`Failed to generate quiz: ${msg || 'Try again.'}`, 'error')
       }
     } finally {
       setQuizLoading(false)
@@ -330,18 +336,6 @@ export default function StudyPanel() {
         )}
       </div>
 
-      {/* Summary Card */}
-      {pdfSummary && !isTopicsLoading && (
-        <div className="pdf-summary-container" style={{ margin: '1rem', padding: '1rem', background: 'rgba(108,99,255,0.05)', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
-          <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--accent-primary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <BrainCircuit size={16} />
-            Document Summary
-          </h3>
-          <p style={{ fontSize: '0.8125rem', lineHeight: '1.5', color: 'var(--text-secondary)' }}>
-            {pdfSummary}
-          </p>
-        </div>
-      )}
 
       {/* Topic Tree */}
       <div className="topic-tree">

@@ -61,23 +61,17 @@ public class StudySessionService {
 
         List<Topic> rootTopics;
         try {
-            Map<String, Object> roadmapMap = objectMapper.readValue(roadmapJson, new TypeReference<>() {});
+            List<Map<String, Object>> topicsData = objectMapper.readValue(roadmapJson, new TypeReference<>() {});
             
-            // Extract and save summary
-            String summary = (String) roadmapMap.get("summary");
-            if (summary != null) {
-                document.setSummary(summary);
-                documentRepository.save(document);
+            if (topicsData == null || topicsData.isEmpty()) {
+                log.warn("AI returned an empty topics list for document id={}", documentId);
+                rootTopics = new ArrayList<>();
+            } else {
+                rootTopics = parseAndSaveTopics(document, null, topicsData);
             }
-
-            // Extract and save topics
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> topicsData = (List<Map<String, Object>>) roadmapMap.get("topics");
-            rootTopics = parseAndSaveTopics(document, null, topicsData);
-
         } catch (Exception e) {
             log.error("Failed to parse roadmap JSON for doc {}. Raw response: [{}]", documentId, roadmapJson, e);
-            throw new RuntimeException("AI returned invalid roadmap format.");
+            throw new RuntimeException("AI returned invalid roadmap format: " + e.getMessage());
         }
 
         // Re-fetch with EntityGraph so children are eagerly loaded for the controller

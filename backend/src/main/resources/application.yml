@@ -25,9 +25,9 @@ spring:
 app:
   gemini:
     api-key: ${GEMINI_API_KEY:your_api_key_here}
-    model: gemini-flash-latest
-    fallback-model: gemini-pro-latest
-    url: https://generativelanguage.googleapis.com/v1beta/models
+    model: gemini-2.5-flash
+    fallback-model: gemini-2.0-flash-lite
+    base-url: https://generativelanguage.googleapis.com/v1beta
 
 logging:
   level:
