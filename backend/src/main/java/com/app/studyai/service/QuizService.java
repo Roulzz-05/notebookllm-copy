@@ -8,6 +8,8 @@ import com.app.studyai.repository.QuizRepository;
 import com.app.studyai.rag.LLMService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,6 +19,8 @@ import java.util.Map;
 
 @Service
 public class QuizService {
+    private static final Logger log = LoggerFactory.getLogger(QuizService.class);
+
     private final DocumentRepository documentRepository;
     private final QuizRepository quizRepository;
     private final LLMService llmService;
